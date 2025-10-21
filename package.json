@@ -19,7 +19,7 @@
     "list-api-keys": "ts-node scripts/listApiKeys.ts",
     "revoke-api-key": "ts-node scripts/revokeApiKey.ts",
     "manage-api-keys": "ts-node scripts/manageApiKeys.ts",
-    
+
     "//": "=== ADMIN MANAGEMENT SCRIPTS ===",
     "grant-admin": "ts-node src/scripts/grantAdmin.ts",
     "simple-admin": "ts-node src/scripts/simpleAdmin.ts",
@@ -28,23 +28,23 @@
     "list-admins": "npm run grant-admin -- --list-admins",
     "create-admin": "npm run grant-admin -- --create-admin",
     "remove-admin": "npm run grant-admin -- --remove",
-    
+
     "//": "=== QUICK ADMIN COMMANDS ===",
     "make-admin": "npm run grant-admin -- --email",
     "make-superadmin": "npm run grant-admin -- --email",
     "admin-help": "npm run grant-admin -- --help",
-    
+
     "//": "=== DATABASE UTILITIES ===",
     "db:seed": "ts-node src/scripts/seedDatabase.ts",
     "db:reset": "ts-node src/scripts/resetDatabase.ts",
     "db:migrate": "ts-node src/scripts/migrateDatabase.ts",
     "db:backup": "node -e \"console.log('Database backup functionality - implement as needed')\"",
-    
+
     "//": "=== DEVELOPMENT UTILITIES ===",
     "check-admins": "npm run list-admins",
     "admin-status": "npm run grant-admin -- --list-admins",
     "user-info": "node -e \"console.log('Run: npm run grant-admin -- --interactive for user management')\"",
-    
+
     "//": "=== PRODUCTION HELPERS ===",
     "prod:grant-admin": "NODE_ENV=production npm run grant-admin --",
     "prod:list-admins": "NODE_ENV=production npm run list-admins",

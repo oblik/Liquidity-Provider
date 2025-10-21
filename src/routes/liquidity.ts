@@ -8,7 +8,10 @@ import {
   initiateWithdrawal,
   getSupportedBanks,
   verifyBankAccount,
-  refreshBalances
+  refreshBalances,
+  requestSettlement,
+  getSettlementStatus,
+  handleSettlementWebhook
 } from '../controllers/liquidityController';
 import { protect } from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
@@ -36,18 +39,18 @@ const validateBankAccount = [
     .withMessage('Account number must be exactly 10 digits')
     .isNumeric()
     .withMessage('Account number must contain only numbers'),
-  
+
   body('bankAccount.bankCode')
     .isLength({ min: 6, max: 6 })  // ✅ FIXED: Changed from 3 to 6 digits
     .withMessage('Bank code must be exactly 6 digits')
     .isNumeric()
     .withMessage('Bank code must contain only numbers'),
-    
+
   body('bankAccount.bankName')
     .isLength({ min: 2, max: 50 })
     .withMessage('Bank name must be between 2 and 50 characters')
     .trim(),
-    
+
   body('bankAccount.accountName')
     .isLength({ min: 2, max: 50 })
     .withMessage('Account name must be between 2 and 50 characters')
@@ -59,11 +62,11 @@ const validateWithdrawal = [
   body('network')
     .isIn(['base', 'solana'])
     .withMessage('Network must be either "base" or "solana"'),
-    
+
   body('amount')
     .isFloat({ min: 0.5 })  // ✅ CHANGED: From 10 to 0.5 USDC minimum
     .withMessage('Amount must be at least 0.5 USDC'),
-    
+
   body('destinationAddress')
     .notEmpty()
     .withMessage('Destination address is required')
@@ -337,7 +340,7 @@ router.get('/service-status', protect, async (req: express.Request, res: express
   try {
     const gaslessService = (await import('../services/gaslessService')).default;
     const status = gaslessService.getServiceStatus();
-    
+
     res.status(200).json({
       success: true,
       message: 'Service status retrieved',
@@ -385,6 +388,63 @@ router.get('/banks', getSupportedBanks);
 
 /**
  * @swagger
+ * /api/liquidity/dashboard:
+ *   get:
+ *     summary: Get liquidity dashboard
+ *     tags: [Liquidity]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 dashboard:
+ *                   type: object
+ *                   properties:
+ *                     totalLiquidity:
+ *                       type: number
+ *                     availableLiquidity:
+ *                       type: number
+ *                     networks:
+ *                       type: object
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/dashboard', async (req: express.Request, res: express.Response) => {
+  try {
+    // For now, return mock dashboard data
+    // TODO: Implement real dashboard logic
+    const dashboard = {
+      totalLiquidity: 1000000,
+      availableLiquidity: 950000,
+      networks: {
+        base: { available: 500000, total: 500000 },
+        solana: { available: 300000, total: 300000 },
+        ethereum: { available: 150000, total: 200000 }
+      }
+    };
+
+    res.status(200).json({
+      success: true,
+      dashboard
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get dashboard',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @swagger
  * /api/liquidity/verify-account:
  *   post:
  *     summary: Verify bank account details
@@ -416,5 +476,161 @@ router.post('/verify-account', [
   body('accountNumber').isLength({ min: 10, max: 10 }).isNumeric(),
   body('bankCode').isLength({ min: 6, max: 6 }).isNumeric()  // ✅ FIXED: Changed from 3 to 6 digits
 ], handleValidationErrors, verifyBankAccount);
+
+// ================== SETTLEMENT ROUTES ==================
+
+/**
+ * @swagger
+ * /api/liquidity/request-settlement:
+ *   post:
+ *     summary: Request settlement for business order
+ *     description: Initiate USDC transfer to customer wallet for completed business order
+ *     tags: [Liquidity]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - orderId
+ *               - customerWallet
+ *               - amount
+ *               - token
+ *               - network
+ *             properties:
+ *               orderId:
+ *                 type: string
+ *                 example: "OR_1234567890_ABCDEF"
+ *               customerWallet:
+ *                 type: string
+ *                 example: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
+ *               amount:
+ *                 type: number
+ *                 example: 100.50
+ *               token:
+ *                 type: string
+ *                 example: "USDC"
+ *               network:
+ *                 type: string
+ *                 example: "base"
+ *               businessId:
+ *                 type: string
+ *                 example: "business_123"
+ *               customerEmail:
+ *                 type: string
+ *                 example: "customer@example.com"
+ *     responses:
+ *       200:
+ *         description: Settlement initiated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 settlementId:
+ *                   type: string
+ *                   example: "SETTLE_1234567890_ABCDEF"
+ *                 status:
+ *                   type: string
+ *                   example: "initiated"
+ *                 transactionHash:
+ *                   type: string
+ *                   example: "0x1234567890abcdef..."
+ *                 estimatedTime:
+ *                   type: string
+ *                   example: "2-5 minutes"
+ *       400:
+ *         description: Missing required fields
+ *       500:
+ *         description: Settlement request failed
+ */
+router.post('/request-settlement', requestSettlement);
+
+/**
+ * @swagger
+ * /api/liquidity/settlement-status/{settlementId}:
+ *   get:
+ *     summary: Check settlement status
+ *     description: Get the current status of a settlement request
+ *     tags: [Liquidity]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: settlementId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Settlement ID
+ *         example: "SETTLE_1234567890_ABCDEF"
+ *     responses:
+ *       200:
+ *         description: Settlement status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 settlementId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   enum: [initiated, processing, completed, failed]
+ *                 transactionHash:
+ *                   type: string
+ *                 confirmations:
+ *                   type: number
+ *                 blockNumber:
+ *                   type: number
+ *                 completedAt:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Settlement ID is required
+ *       500:
+ *         description: Failed to check settlement status
+ */
+router.get('/settlement-status/:settlementId', getSettlementStatus);
+
+/**
+ * @swagger
+ * /api/liquidity/settlement-webhook:
+ *   post:
+ *     summary: Handle settlement completion webhook
+ *     description: Webhook endpoint for settlement completion notifications
+ *     tags: [Liquidity]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               settlementId:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *               transactionHash:
+ *                 type: string
+ *               confirmations:
+ *                 type: number
+ *               blockNumber:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Webhook processed successfully
+ *       500:
+ *         description: Failed to process webhook
+ */
+router.post('/settlement-webhook', handleSettlementWebhook);
 
 export default router;
